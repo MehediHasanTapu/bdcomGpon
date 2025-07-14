@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>GPON Config Generator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      font-family: monospace;
+      background-color: #f0f0f0;
+      margin: 0;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: auto;
+      background: #fff;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+
+    label {
+      font-weight: bold;
+    }
+
+    input, select {
+      width: 100%;
+      padding: 8px;
+      margin: 10px 0;
+      font-family: monospace;
+      box-sizing: border-box;
+    }
+
+    .checkbox-group {
+      margin-top: 20px;
+      padding: 15px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      background-color: #fafafa;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .checkbox-group label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 16px;
+    }
+
+    input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      accent-color: #007bff;
+      cursor: pointer;
+    }
+
+    .button-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    .button-group button {
+      flex: 1 1 30%;
+      min-width: 120px;
+      padding: 10px;
+      font-weight: bold;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    .button-group button:hover {
+      background-color: #0056b3;
+    }
+
+    pre#outputArea {
+      background: #f8f8f8;
+      padding: 15px;
+      margin-top: 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      max-height: 500px;
+      overflow-y: auto;
+      border: 1px solid #ccc;
+    }
+
+    @media screen and (max-width: 600px) {
+      .button-group button {
+        flex: 1 1 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>GPON Config Generator</h2>
+
+    <label for="portCount">Select Number of Ports (1–16):</label>
+    <select id="portCount"></select>
+
+    <label for="vlanInput">Enter VLANs (comma-separated or range like 201-204):</label>
+    <input type="text" id="vlanInput" placeholder="e.g. 101,102 or 2001-2016">
+
+    <div class="checkbox-group">
+      <label><input type="checkbox" id="selectAll"> Select All</label>
+      <label><input type="checkbox" class="option-box" id="flowMapping"> Flow-Mapping Profile</label>
+      <label><input type="checkbox" class="option-box" id="vlanProfile"> VLAN Profile</label>
+      <label><input type="checkbox" class="option-box" id="onuType"> ONU-Type Template</label>
+      <label><input type="checkbox" class="option-box" id="interfaceBind"> Interface Bind-Type</label>
+    </div>
+
+    <div class="button-group">
+      <button onclick="generateConfig()">Generate CLI</button>
+      <button onclick="copyToClipboard()">Copy to Clipboard</button>
+      <button onclick="downloadConfig()">Download as txt file</button>
+    </div>
+
+    <pre id="outputArea"></pre>
+  </div>
+
+  <script>
+    // Populate port dropdown
+    const portSelect = document.getElementById('portCount');
+    for (let i = 1; i <= 16; i++) {
+      const option = document.createElement('option');
+      option.value = i;
+      option.textContent = i;
+      portSelect.appendChild(option);
+    }
+
+    // Sync Select All checkbox
+    document.getElementById("selectAll").addEventListener("change", function () {
+      const checked = this.checked;
+      document.querySelectorAll(".option-box").forEach((box) => {
+        box.checked = checked;
+      });
+    });
+
+    document.querySelectorAll(".option-box").forEach((box) => {
+      box.addEventListener("change", function () {
+        const allChecked = Array.from(document.querySelectorAll(".option-box")).every(
+          (b) => b.checked
+        );
+        document.getElementById("selectAll").checked = allChecked;
+      });
+    });
+
+    // Expand VLAN Input
+    function expandVlanInput(input) {
+      const parts = input.split(',');
+      const vlans = [];
+
+      for (const part of parts) {
+        if (part.includes('-')) {
+          const [start, end] = part.split('-').map(Number);
+          if (isNaN(start) || isNaN(end) || start > end || start < 1 || end > 4094) {
+            return null;
+          }
+          for (let i = start; i <= end; i++) {
+            vlans.push(i.toString());
+          }
+        } else {
+          const vlan = Number(part.trim());
+          if (isNaN(vlan) || vlan < 1 || vlan > 4094) {
+            return null;
+          }
+          vlans.push(vlan.toString());
+        }
+      }
+
+      return vlans;
+    }
+
+    // Generate Config
+    function generateConfig() {
+      const portCount = parseInt(document.getElementById('portCount').value);
+      const vlanInput = document.getElementById('vlanInput').value.trim();
+      const vlans = expandVlanInput(vlanInput);
+
+      if (!vlans) {
+        alert("Invalid VLAN input. VLANs must be between 1 and 4094.");
+        return;
+      }
+
+      if (vlans.length !== portCount) {
+        alert(`You selected ${portCount} ports but entered ${vlans.length} VLAN(s).`);
+        return;
+      }
+
+      const outputLines = [];
+
+      const doFlow = document.getElementById('flowMapping').checked;
+      const doVlan = document.getElementById('vlanProfile').checked;
+      const doOnu = document.getElementById('onuType').checked;
+      const doInterface = document.getElementById('interfaceBind').checked;
+
+      if (!doFlow && !doVlan && !doOnu && !doInterface) {
+        alert("Please select at least one config option.");
+        return;
+      }
+
+      if (doFlow) {
+        vlans.forEach((vlan, i) => {
+          const pon = `pon${i + 1}`;
+          outputLines.push(`gpon profile onu-flow-mapping flow_mapping_sfu_${pon}`);
+          outputLines.push(` gpon-profile entry 1 uni type eth-uni all`);
+          outputLines.push(` gpon-profile entry 1 vlan ${vlan}`);
+          outputLines.push(` gpon-profile entry 1 virtual-port 1\n!`);
+        });
+      }
+
+      if (doVlan) {
+        vlans.forEach((vlan, i) => {
+          const pon = `pon${i + 1}`;
+          outputLines.push(`gpon profile onu-vlan ${pon}`);
+          outputLines.push(` gpon-profile vlan mode tag`);
+          outputLines.push(` gpon-profile vlan pvid ${vlan}\n!`);
+        });
+      }
+
+      if (doOnu) {
+        vlans.forEach((vlan, i) => {
+          const pon = `pon${i + 1}`;
+          outputLines.push(`gpon onutype-template onutype-sfu-${pon}`);
+          outputLines.push(` gpon-onutype match ctc-onu-type SFU`);
+          outputLines.push(` gpon-onutype config tcont-virtual-port-bind-profile tvbind-default`);
+          outputLines.push(` gpon-onutype config flow-mapping-profile flow_mapping_sfu_${pon}`);
+          for (let j = 1; j <= 4; j++) {
+            outputLines.push(` gpon-onutype config uni ${j} vlan-profile ${pon}`);
+          }
+          outputLines.push(`!`);
+        });
+      }
+
+      if (doInterface) {
+        vlans.forEach((vlan, i) => {
+          const pon = `pon${i + 1}`;
+          outputLines.push(`interface GPON0/${i + 1}`);
+          outputLines.push(` gpon bind-onutype onutype-sfu-${pon} precedence 126`);
+          outputLines.push(` switchport mode trunk`);
+          outputLines.push(` switchport pvid ${vlan}\n!`);
+        });
+      }
+
+      document.getElementById('outputArea').textContent = outputLines.join('\n');
+    }
+
+    // Copy to Clipboard
+    function copyToClipboard() {
+      const output = document.getElementById('outputArea').textContent;
+      if (!output.trim()) {
+        alert("Nothing to copy. Please generate configuration first.");
+        return;
+      }
+
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(output)
+          .then(() => alert("Copied to clipboard!"))
+          .catch(() => fallbackCopy(output));
+      } else {
+        fallbackCopy(output);
+      }
+    }
+
+    function fallbackCopy(text) {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+      alert("Copied using fallback.");
+    }
+
+    // Download as .txt
+    function downloadConfig() {
+      const text = document.getElementById('outputArea').textContent.trim();
+      const vlanInput = document.getElementById('vlanInput').value.trim();
+
+      if (!text) {
+        alert("Generate the configuration first.");
+        return;
+      }
+
+      if (!vlanInput) {
+        alert("Missing VLAN input.");
+        return;
+      }
+
+      const filename = `vlan_${vlanInput.replace(/\s+/g, '')}_config.txt`;
+      const blob = new Blob([text], { type: 'text/plain' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(link.href);
+    }
+  </script>
+</body>
+</html>
