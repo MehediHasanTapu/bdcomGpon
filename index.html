@@ -104,10 +104,10 @@
 <body>
   <div class="container">
     <h2>BDCOM GPON Config Generator</h2>
-     <p>
-  <a href="https://mehedihasantapu.github.io/Epon/" target="_blank" style="color: #007BFF; text-decoration: none;">
-    Visit EPON Config Page
-  </a>
+      <p>
+    <a href="https://mehedihasantapu.github.io/Epon/" target="_blank" style="color: #007BFF; text-decoration: none;">
+      Visit EPON Config Page
+    </a>
 </p>
     <label for="portCount">Select Number of Ports (1–16):</label>
     <select id="portCount"></select>
@@ -116,6 +116,8 @@
     <input type="text" id="vlanInput" placeholder="e.g. 101,102 or 2001-2016">
 
     <div class="checkbox-group">
+      <!-- New checkbox for default flow-mapping -->
+      <label><input type="checkbox" id="selectAllDefaultFlow"> Select All with Default Flow-Mapping Profile</label>
       <label><input type="checkbox" id="selectAll"> Select All</label>
       <label><input type="checkbox" class="option-box" id="flowMapping"> Flow-Mapping Profile</label>
       <label><input type="checkbox" class="option-box" id="vlanProfile"> VLAN Profile</label>
@@ -142,22 +144,61 @@
       portSelect.appendChild(option);
     }
 
+    const selectAllDefaultFlowCheckbox = document.getElementById('selectAllDefaultFlow');
+    const selectAllCheckbox = document.getElementById('selectAll');
+    const optionBoxes = document.querySelectorAll('.option-box');
+
+    // Function to set the disabled state of option boxes
+    function setOptionBoxesDisabled(disabled) {
+      optionBoxes.forEach(box => {
+        box.disabled = disabled;
+      });
+      selectAllCheckbox.disabled = disabled; // Also disable the general "Select All"
+    }
+
     // Sync Select All checkbox
-    document.getElementById("selectAll").addEventListener("change", function () {
+    selectAllCheckbox.addEventListener('change', function () {
       const checked = this.checked;
-      document.querySelectorAll(".option-box").forEach((box) => {
+      optionBoxes.forEach((box) => {
         box.checked = checked;
+      });
+      // If general "Select All" is checked, uncheck the "Select All with Default Flow-Mapping Profile"
+      if (checked) {
+        selectAllDefaultFlowCheckbox.checked = false;
+        setOptionBoxesDisabled(false); // Ensure they are enabled if general select all is used
+      }
+    });
+
+    // Sync individual option boxes with general "Select All"
+    optionBoxes.forEach((box) => {
+      box.addEventListener('change', function () {
+        const allChecked = Array.from(optionBoxes).every((b) => b.checked);
+        selectAllCheckbox.checked = allChecked;
+        // If any individual option is checked, uncheck the "Select All with Default Flow-Mapping Profile"
+        if (this.checked) {
+            selectAllDefaultFlowCheckbox.checked = false;
+            setOptionBoxesDisabled(false); // Ensure they are enabled
+        }
       });
     });
 
-    document.querySelectorAll(".option-box").forEach((box) => {
-      box.addEventListener("change", function () {
-        const allChecked = Array.from(document.querySelectorAll(".option-box")).every(
-          (b) => b.checked
-        );
-        document.getElementById("selectAll").checked = allChecked;
-      });
+    // New logic for "Select All with Default Flow-Mapping Profile"
+    selectAllDefaultFlowCheckbox.addEventListener('change', function() {
+        const checked = this.checked;
+
+        if (checked) {
+            // Uncheck and disable all other checkboxes
+            selectAllCheckbox.checked = false;
+            optionBoxes.forEach(box => {
+                box.checked = false;
+            });
+            setOptionBoxesDisabled(true); // Disable all other options
+        } else {
+            // Re-enable all other checkboxes
+            setOptionBoxesDisabled(false);
+        }
     });
+
 
     // Expand VLAN Input
     function expandVlanInput(input) {
@@ -203,16 +244,22 @@
 
       const outputLines = [];
 
-      const doFlow = document.getElementById('flowMapping').checked;
-      const doVlan = document.getElementById('vlanProfile').checked;
-      const doOnu = document.getElementById('onuType').checked;
-      const doInterface = document.getElementById('interfaceBind').checked;
+      const useDefaultFlowMappingOption = selectAllDefaultFlowCheckbox.checked;
 
-      if (!doFlow && !doVlan && !doOnu && !doInterface) {
-        alert("Please select at least one config option.");
+      // Determine which sections to generate based on checkbox states
+      // If 'useDefaultFlowMappingOption' is true, these implicitly become true for generation
+      const doFlow = useDefaultFlowMappingOption ? false : document.getElementById('flowMapping').checked;
+      const doVlan = useDefaultFlowMappingOption ? true : document.getElementById('vlanProfile').checked;
+      const doOnu = useDefaultFlowMappingOption ? true : document.getElementById('onuType').checked;
+      const doInterface = useDefaultFlowMappingOption ? true : document.getElementById('interfaceBind').checked;
+
+      if (!doFlow && !doVlan && !doOnu && !doInterface && !useDefaultFlowMappingOption) {
+        alert("Please select at least one config option, or 'Select All with Default Flow-Mapping Profile'.");
         return;
       }
 
+      // If 'Select All with Default Flow-Mapping Profile' is checked, we don't generate the specific flow_mapping profile.
+      // The flow-mapping-default is handled within the 'doOnu' section.
       if (doFlow) {
         vlans.forEach((vlan, i) => {
           const pon = `pon${i + 1}`;
@@ -238,7 +285,12 @@
           outputLines.push(`gpon onutype-template onutype-sfu-${pon}`);
           outputLines.push(` gpon-onutype match ctc-onu-type SFU`);
           outputLines.push(` gpon-onutype config tcont-virtual-port-bind-profile tvbind-default`);
-          outputLines.push(` gpon-onutype config flow-mapping-profile flow_mapping_sfu_${pon}`);
+          // This is the modified line based on the new checkbox
+          if (useDefaultFlowMappingOption) {
+            outputLines.push(` gpon-onutype config flow-mapping-profile flow-mapping-default`);
+          } else {
+            outputLines.push(` gpon-onutype config flow-mapping-profile flow_mapping_sfu_${pon}`);
+          }
           for (let j = 1; j <= 4; j++) {
             outputLines.push(` gpon-onutype config uni ${j} vlan-profile ${pon}`);
           }
@@ -267,23 +319,20 @@
         return;
       }
 
-      if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard.writeText(output)
-          .then(() => alert("Copied to clipboard!"))
-          .catch(() => fallbackCopy(output));
-      } else {
-        fallbackCopy(output);
-      }
-    }
-
-    function fallbackCopy(text) {
+      // Use document.execCommand('copy') for better compatibility within iframes
       const textarea = document.createElement("textarea");
-      textarea.value = text;
+      textarea.value = output;
       document.body.appendChild(textarea);
       textarea.select();
-      document.execCommand("copy");
-      document.body.removeChild(textarea);
-      alert("Copied using fallback.");
+      try {
+        document.execCommand('copy');
+        alert("Copied to clipboard!");
+      } catch (err) {
+        console.error('Failed to copy text: ', err);
+        alert("Failed to copy. Please copy manually.");
+      } finally {
+        document.body.removeChild(textarea);
+      }
     }
 
     // Download as .txt
