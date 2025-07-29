@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <title>BDCOM GPON Config Generator</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Link to manifest.json for PWA features -->
+  <link rel="manifest" href="/manifest.json">
   <style>
     body {
       font-family: monospace;
@@ -75,10 +77,18 @@
       border: none;
       border-radius: 5px;
       cursor: pointer;
+      transition: background-color 0.3s ease, transform 0.1s ease; /* Added transition for smooth effect */
     }
 
     .button-group button:hover {
       background-color: #0056b3;
+    }
+
+    /* CSS for the 'copied' state (reused for generated/downloaded success) */
+    .button-group button.copied-success {
+      background-color: #28a745; /* Green color for success */
+      transform: scale(1.02); /* Slightly enlarge on success */
+      box-shadow: 0 0 15px rgba(40, 167, 69, 0.5); /* Green glow */
     }
 
     pre#outputArea {
@@ -92,6 +102,25 @@
       max-height: 500px;
       overflow-y: auto;
       border: 1px solid #ccc;
+    }
+
+    /* Style for the VLAN suggestion */
+    #vlanSuggestion {
+      display: none; /* Hidden by default */
+      margin-top: -5px; /* Adjust spacing */
+      margin-bottom: 10px;
+      padding: 5px 10px;
+      background-color: #e9ecef;
+      border-radius: 5px;
+      font-size: 0.9em;
+      color: #343a40;
+      cursor: pointer;
+      border: 1px solid #ced4da;
+      transition: background-color 0.2s ease;
+    }
+
+    #vlanSuggestion:hover {
+      background-color: #dee2e6;
     }
 
     @media screen and (max-width: 600px) {
@@ -114,6 +143,7 @@
 
     <label for="vlanInput">Enter VLANs (comma-separated or range like 201-204):</label>
     <input type="text" id="vlanInput" placeholder="e.g. 101,102 or 2001-2016">
+    <span id="vlanSuggestion"></span> <!-- New element for VLAN suggestion -->
 
     <div class="checkbox-group">
       <!-- New checkbox for default flow-mapping -->
@@ -126,15 +156,28 @@
     </div>
 
     <div class="button-group">
-      <button onclick="generateConfig()">Generate Configuration</button>
-      <button onclick="copyToClipboard()">Copy to Clipboard</button>
-      <button onclick="downloadConfig()">Download as txt file</button>
+      <button id="generateButton" onclick="generateConfig()">Generate Configuration</button>
+      <button id="copyButton" onclick="copyToClipboard()">Copy to Clipboard</button>
+      <button id="downloadButton" onclick="downloadConfig()">Download as txt file</button>
     </div>
 
     <pre id="outputArea"></pre>
   </div>
 
   <script>
+    // Register Service Worker
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/service-worker.js')
+          .then(registration => {
+            console.log('Service Worker registered with scope:', registration.scope);
+          })
+          .catch(error => {
+            console.log('Service Worker registration failed:', error);
+          });
+      });
+    }
+
     // Populate port dropdown
     const portSelect = document.getElementById('portCount');
     for (let i = 1; i <= 16; i++) {
@@ -147,6 +190,11 @@
     const selectAllDefaultFlowCheckbox = document.getElementById('selectAllDefaultFlow');
     const selectAllCheckbox = document.getElementById('selectAll');
     const optionBoxes = document.querySelectorAll('.option-box');
+    const generateButton = document.getElementById('generateButton'); // Get reference to generate button
+    const copyButton = document.getElementById('copyButton'); // Get reference to the copy button
+    const downloadButton = document.getElementById('downloadButton'); // Get reference to download button
+    const vlanInput = document.getElementById('vlanInput'); // Get reference to VLAN input
+    const vlanSuggestionSpan = document.getElementById('vlanSuggestion'); // Get reference to the new suggestion span
 
     // Function to set the disabled state of option boxes
     function setOptionBoxesDisabled(disabled) {
@@ -155,6 +203,59 @@
       });
       selectAllCheckbox.disabled = disabled; // Also disable the general "Select All"
     }
+
+    // Function to dynamically suggest VLAN range
+    function suggestVlanRange() {
+      const currentVlanInput = vlanInput.value.trim();
+      const portCount = parseInt(portSelect.value);
+      let suggestion = '';
+
+      // Case 1: Input is a single number (e.g., "11")
+      if (/^\d+$/.test(currentVlanInput)) {
+        const startVlan = parseInt(currentVlanInput);
+        if (!isNaN(startVlan) && startVlan >= 1 && startVlan <= 4094) {
+          const endVlan = startVlan + portCount - 1;
+          // Only suggest if the calculated endVlan is within valid range or if it's a single port
+          if (endVlan <= 4094 || portCount === 1) {
+            suggestion = `${startVlan}-${endVlan}`;
+          }
+        }
+      }
+      // Case 2: Input is a number followed by a hyphen (e.g., "3001-")
+      else if (/^(\d+)-$/.test(currentVlanInput)) {
+        const match = currentVlanInput.match(/^(\d+)-$/);
+        const startVlan = parseInt(match[1]);
+        if (!isNaN(startVlan) && startVlan >= 1 && startVlan <= 4094) {
+          const endVlan = startVlan + portCount - 1;
+          if (endVlan <= 4094 || portCount === 1) {
+            suggestion = `${startVlan}-${endVlan}`;
+          }
+        }
+      }
+
+      // Display or hide the suggestion
+      if (suggestion && suggestion !== currentVlanInput) { // Only show if different from current input
+        vlanSuggestionSpan.textContent = `Suggestion: ${suggestion}`;
+        vlanSuggestionSpan.style.display = 'block';
+      } else {
+        vlanSuggestionSpan.textContent = '';
+        vlanSuggestionSpan.style.display = 'none';
+      }
+    }
+
+    // Add event listeners for dynamic VLAN suggestion
+    portSelect.addEventListener('change', suggestVlanRange);
+    vlanInput.addEventListener('input', suggestVlanRange); // Use 'input' for real-time suggestions as user types
+    vlanInput.addEventListener('blur', suggestVlanRange); // Keep 'blur' for final check
+
+    // Add event listener to accept the suggestion when clicked
+    vlanSuggestionSpan.addEventListener('click', () => {
+      const suggestedText = vlanSuggestionSpan.textContent.replace('Suggestion: ', '');
+      vlanInput.value = suggestedText;
+      vlanSuggestionSpan.style.display = 'none'; // Hide after accepting
+      vlanInput.focus(); // Keep focus on the input for convenience
+    });
+
 
     // Sync Select All checkbox
     selectAllCheckbox.addEventListener('change', function () {
@@ -229,8 +330,8 @@
     // Generate Config
     function generateConfig() {
       const portCount = parseInt(document.getElementById('portCount').value);
-      const vlanInput = document.getElementById('vlanInput').value.trim();
-      const vlans = expandVlanInput(vlanInput);
+      const vlanInputVal = document.getElementById('vlanInput').value.trim();
+      const vlans = expandVlanInput(vlanInputVal);
 
       if (!vlans) {
         alert("Invalid VLAN input. VLANs must be between 1 and 4094.");
@@ -246,8 +347,6 @@
 
       const useDefaultFlowMappingOption = selectAllDefaultFlowCheckbox.checked;
 
-      // Determine which sections to generate based on checkbox states
-      // If 'useDefaultFlowMappingOption' is true, these implicitly become true for generation
       const doFlow = useDefaultFlowMappingOption ? false : document.getElementById('flowMapping').checked;
       const doVlan = useDefaultFlowMappingOption ? true : document.getElementById('vlanProfile').checked;
       const doOnu = useDefaultFlowMappingOption ? true : document.getElementById('onuType').checked;
@@ -258,8 +357,6 @@
         return;
       }
 
-      // If 'Select All with Default Flow-Mapping Profile' is checked, we don't generate the specific flow_mapping profile.
-      // The flow-mapping-default is handled within the 'doOnu' section.
       if (doFlow) {
         vlans.forEach((vlan, i) => {
           const pon = `pon${i + 1}`;
@@ -285,7 +382,6 @@
           outputLines.push(`gpon onutype-template onutype-sfu-${pon}`);
           outputLines.push(` gpon-onutype match ctc-onu-type SFU`);
           outputLines.push(` gpon-onutype config tcont-virtual-port-bind-profile tvbind-default`);
-          // This is the modified line based on the new checkbox
           if (useDefaultFlowMappingOption) {
             outputLines.push(` gpon-onutype config flow-mapping-profile flow-mapping-default`);
           } else {
@@ -309,6 +405,14 @@
       }
 
       document.getElementById('outputArea').textContent = outputLines.join('\n');
+
+      // Success feedback for Generate Button
+      generateButton.textContent = "Generated!";
+      generateButton.classList.add('copied-success');
+      setTimeout(() => {
+        generateButton.textContent = "Generate Configuration";
+        generateButton.classList.remove('copied-success');
+      }, 2000);
     }
 
     // Copy to Clipboard
@@ -319,14 +423,19 @@
         return;
       }
 
-      // Use document.execCommand('copy') for better compatibility within iframes
       const textarea = document.createElement("textarea");
       textarea.value = output;
       document.body.appendChild(textarea);
       textarea.select();
       try {
         document.execCommand('copy');
-        alert("Copied to clipboard!");
+        copyButton.textContent = "Copied!";
+        copyButton.classList.add('copied-success');
+        setTimeout(() => {
+          copyButton.textContent = "Copy to Clipboard";
+          copyButton.classList.remove('copied-success');
+        }, 2000);
+
       } catch (err) {
         console.error('Failed to copy text: ', err);
         alert("Failed to copy. Please copy manually.");
@@ -338,28 +447,37 @@
     // Download as .txt
     function downloadConfig() {
       const text = document.getElementById('outputArea').textContent.trim();
-      const vlanInput = document.getElementById('vlanInput').value.trim();
+      const vlanInputVal = document.getElementById('vlanInput').value.trim();
 
       if (!text) {
         alert("Generate the configuration first.");
         return;
       }
 
-      if (!vlanInput) {
+      if (!vlanInputVal) {
         alert("Missing VLAN input.");
         return;
       }
 
-      const filename = `vlan_${vlanInput.replace(/\s+/g, '')}_config.txt`;
+      const filename = `vlan_${vlanInputVal.replace(/\s+/g, '')}_config.txt`;
       const blob = new Blob([text], { type: 'text/plain' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
       link.download = filename;
 
+      // Trigger download
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(link.href);
+
+      // Success feedback for Download Button
+      downloadButton.textContent = "Downloaded!";
+      downloadButton.classList.add('copied-success');
+      setTimeout(() => {
+        downloadButton.textContent = "Download as txt file";
+        downloadButton.classList.remove('copied-success');
+      }, 2000);
     }
   </script>
 </body>
