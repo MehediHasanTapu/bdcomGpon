@@ -60,6 +60,16 @@
       cursor: pointer;
     }
 
+    /* New style for faded/disabled checkboxes */
+    .checkbox-group label.faded-disabled {
+        opacity: 0.5;
+        pointer-events: none; /* Prevent clicks on the label itself */
+    }
+    .checkbox-group label.faded-disabled input[type="checkbox"] {
+        cursor: not-allowed;
+    }
+
+
     .button-group {
       display: flex;
       flex-wrap: wrap;
@@ -77,18 +87,17 @@
       border: none;
       border-radius: 5px;
       cursor: pointer;
-      transition: background-color 0.3s ease, transform 0.1s ease; /* Added transition for smooth effect */
+      transition: background-color 0.3s ease, transform 0.1s ease;
     }
 
     .button-group button:hover {
       background-color: #0056b3;
     }
 
-    /* CSS for the 'copied' state (reused for generated/downloaded success) */
     .button-group button.copied-success {
-      background-color: #28a745; /* Green color for success */
-      transform: scale(1.02); /* Slightly enlarge on success */
-      box-shadow: 0 0 15px rgba(40, 167, 69, 0.5); /* Green glow */
+      background-color: #28a745;
+      transform: scale(1.02);
+      box-shadow: 0 0 15px rgba(40, 167, 69, 0.5);
     }
 
     pre#outputArea {
@@ -104,10 +113,9 @@
       border: 1px solid #ccc;
     }
 
-    /* Style for the VLAN suggestion */
     #vlanSuggestion {
-      display: none; /* Hidden by default */
-      margin-top: -5px; /* Adjust spacing */
+      display: none;
+      margin-top: -5px;
       margin-bottom: 10px;
       padding: 5px 10px;
       background-color: #e9ecef;
@@ -143,16 +151,12 @@
 
     <label for="vlanInput">Enter VLANs (comma-separated or range like 201-204):</label>
     <input type="text" id="vlanInput" placeholder="e.g. 101,102 or 2001-2016">
-    <span id="vlanSuggestion"></span> <!-- New element for VLAN suggestion -->
+    <span id="vlanSuggestion"></span>
 
     <div class="checkbox-group">
-      <!-- New checkbox for default flow-mapping -->
-      <label><input type="checkbox" id="selectAllDefaultFlow"> Select All with Default Flow-Mapping Profile</label>
-      <label><input type="checkbox" id="selectAll"> Select All</label>
-      <label><input type="checkbox" class="option-box" id="flowMapping"> Flow-Mapping Profile</label>
-      <label><input type="checkbox" class="option-box" id="vlanProfile"> VLAN Profile</label>
-      <label><input type="checkbox" class="option-box" id="onuType"> Gpon onutype-template</label>
-      <label><input type="checkbox" class="option-box" id="interfaceBind"> Gpon bind-onutype</label>
+      <label id="labelDefaultFmProfile"><input type="checkbox" id="generateWithDefaultFmProfile"> Generate with Default f-m profile</label>
+      <label id="labelCustomFmProfile"><input type="checkbox" id="generateWithCustomFmProfile"> Generate with custom f-m profile</label>
+      <label id="labelMatchingOnuType"><input type="checkbox" id="generateWithMatchingOnuType"> Generate with matching onu-type</label>
     </div>
 
     <div class="button-group">
@@ -187,22 +191,53 @@
       portSelect.appendChild(option);
     }
 
-    const selectAllDefaultFlowCheckbox = document.getElementById('selectAllDefaultFlow');
-    const selectAllCheckbox = document.getElementById('selectAll');
-    const optionBoxes = document.querySelectorAll('.option-box');
-    const generateButton = document.getElementById('generateButton'); // Get reference to generate button
-    const copyButton = document.getElementById('copyButton'); // Get reference to the copy button
-    const downloadButton = document.getElementById('downloadButton'); // Get reference to download button
-    const vlanInput = document.getElementById('vlanInput'); // Get reference to VLAN input
-    const vlanSuggestionSpan = document.getElementById('vlanSuggestion'); // Get reference to the new suggestion span
+    const generateWithDefaultFmProfileCheckbox = document.getElementById('generateWithDefaultFmProfile');
+    const generateWithCustomFmProfileCheckbox = document.getElementById('generateWithCustomFmProfile');
+    const generateWithMatchingOnuTypeCheckbox = document.getElementById('generateWithMatchingOnuType');
 
-    // Function to set the disabled state of option boxes
-    function setOptionBoxesDisabled(disabled) {
-      optionBoxes.forEach(box => {
-        box.disabled = disabled;
+    // Get references to the labels for fading
+    const labelDefaultFmProfile = document.getElementById('labelDefaultFmProfile');
+    const labelCustomFmProfile = document.getElementById('labelCustomFmProfile');
+    const labelMatchingOnuType = document.getElementById('labelMatchingOnuType');
+
+    const generateButton = document.getElementById('generateButton'); // Get reference to generate button
+    const copyButton = document.getElementById('copyButton');
+    const downloadButton = document.getElementById('downloadButton'); // Get reference to download button
+    const vlanInput = document.getElementById('vlanInput');
+    const vlanSuggestionSpan = document.getElementById('vlanSuggestion');
+
+    // Array of the new main checkboxes and their corresponding labels for easier iteration
+    const mainCheckboxes = [
+      { checkbox: generateWithDefaultFmProfileCheckbox, label: labelDefaultFmProfile },
+      { checkbox: generateWithCustomFmProfileCheckbox, label: labelCustomFmProfile },
+      { checkbox: generateWithMatchingOnuTypeCheckbox, label: labelMatchingOnuType }
+    ];
+
+    // Function to ensure only one main checkbox is checked at a time and apply fading
+    function handleExclusiveCheckbox(clickedCheckboxObj) {
+      mainCheckboxes.forEach(checkboxObj => {
+        if (checkboxObj.checkbox !== clickedCheckboxObj.checkbox) {
+          checkboxObj.checkbox.checked = false;
+          checkboxObj.checkbox.disabled = clickedCheckboxObj.checkbox.checked; // Disable if the clicked one is checked
+          checkboxObj.label.classList.toggle('faded-disabled', clickedCheckboxObj.checkbox.checked);
+        } else {
+          // If the clicked checkbox is unchecked, re-enable all
+          if (!clickedCheckboxObj.checkbox.checked) {
+            mainCheckboxes.forEach(cb => {
+              cb.checkbox.disabled = false;
+              cb.label.classList.remove('faded-disabled');
+            });
+          }
+        }
       });
-      selectAllCheckbox.disabled = disabled; // Also disable the general "Select All"
     }
+
+    // Add event listeners for exclusive checkbox behavior
+    mainCheckboxes.forEach(checkboxObj => {
+      checkboxObj.checkbox.addEventListener('change', () => {
+        handleExclusiveCheckbox(checkboxObj);
+      });
+    });
 
     // Function to dynamically suggest VLAN range
     function suggestVlanRange() {
@@ -215,7 +250,6 @@
         const startVlan = parseInt(currentVlanInput);
         if (!isNaN(startVlan) && startVlan >= 1 && startVlan <= 4094) {
           const endVlan = startVlan + portCount - 1;
-          // Only suggest if the calculated endVlan is within valid range or if it's a single port
           if (endVlan <= 4094 || portCount === 1) {
             suggestion = `${startVlan}-${endVlan}`;
           }
@@ -234,7 +268,7 @@
       }
 
       // Display or hide the suggestion
-      if (suggestion && suggestion !== currentVlanInput) { // Only show if different from current input
+      if (suggestion && suggestion !== currentVlanInput) {
         vlanSuggestionSpan.textContent = `Suggestion: ${suggestion}`;
         vlanSuggestionSpan.style.display = 'block';
       } else {
@@ -245,63 +279,131 @@
 
     // Add event listeners for dynamic VLAN suggestion
     portSelect.addEventListener('change', suggestVlanRange);
-    vlanInput.addEventListener('input', suggestVlanRange); // Use 'input' for real-time suggestions as user types
-    vlanInput.addEventListener('blur', suggestVlanRange); // Keep 'blur' for final check
+    vlanInput.addEventListener('input', suggestVlanRange);
+    vlanInput.addEventListener('blur', suggestVlanRange);
 
     // Add event listener to accept the suggestion when clicked
     vlanSuggestionSpan.addEventListener('click', () => {
       const suggestedText = vlanSuggestionSpan.textContent.replace('Suggestion: ', '');
       vlanInput.value = suggestedText;
-      vlanSuggestionSpan.style.display = 'none'; // Hide after accepting
-      vlanInput.focus(); // Keep focus on the input for convenience
+      vlanSuggestionSpan.style.display = 'none';
+      vlanInput.focus();
     });
 
+    // Generate Config
+    function generateConfig() {
+      const portCount = parseInt(document.getElementById('portCount').value);
+      const vlanInputVal = document.getElementById('vlanInput').value.trim();
+      const vlans = expandVlanInput(vlanInputVal);
 
-    // Sync Select All checkbox
-    selectAllCheckbox.addEventListener('change', function () {
-      const checked = this.checked;
-      optionBoxes.forEach((box) => {
-        box.checked = checked;
-      });
-      // If general "Select All" is checked, uncheck the "Select All with Default Flow-Mapping Profile"
-      if (checked) {
-        selectAllDefaultFlowCheckbox.checked = false;
-        setOptionBoxesDisabled(false); // Ensure they are enabled if general select all is used
+      // Check if any checkbox is selected
+      const isAnyCheckboxChecked = mainCheckboxes.some(cb => cb.checkbox.checked);
+      if (!isAnyCheckboxChecked) {
+        alert("Please select one of the configuration options.");
+        return;
       }
-    });
 
-    // Sync individual option boxes with general "Select All"
-    optionBoxes.forEach((box) => {
-      box.addEventListener('change', function () {
-        const allChecked = Array.from(optionBoxes).every((b) => b.checked);
-        selectAllCheckbox.checked = allChecked;
-        // If any individual option is checked, uncheck the "Select All with Default Flow-Mapping Profile"
-        if (this.checked) {
-            selectAllDefaultFlowCheckbox.checked = false;
-            setOptionBoxesDisabled(false); // Ensure they are enabled
-        }
-      });
-    });
+      if (!vlans) {
+        alert("Invalid VLAN input. VLANs must be between 1 and 4094.");
+        return;
+      }
 
-    // New logic for "Select All with Default Flow-Mapping Profile"
-    selectAllDefaultFlowCheckbox.addEventListener('change', function() {
-        const checked = this.checked;
+      if (vlans.length !== portCount) {
+        alert(`You selected ${portCount} ports but entered ${vlans.length} VLAN(s).`);
+        return;
+      }
 
-        if (checked) {
-            // Uncheck and disable all other checkboxes
-            selectAllCheckbox.checked = false;
-            optionBoxes.forEach(box => {
-                box.checked = false;
-            });
-            setOptionBoxesDisabled(true); // Disable all other options
-        } else {
-            // Re-enable all other checkboxes
-            setOptionBoxesDisabled(false);
-        }
-    });
+      const outputLines = [];
 
+      // Determine which configuration set to generate based on the selected checkbox
+      let doFlowProfile = false; // Controls the top-level flow-mapping profile
+      let doVlanProfile = true;
+      let doOnuTemplate = true;
+      let doInterfaceBind = true;
+      let useDefaultFlowMappingInOnu = false;
+      let includeOnuMatchLine = false;
 
-    // Expand VLAN Input
+      if (generateWithDefaultFmProfileCheckbox.checked) {
+          doFlowProfile = false; // No separate flow profile, uses default
+          useDefaultFlowMappingInOnu = true;
+          includeOnuMatchLine = false;
+      } else if (generateWithCustomFmProfileCheckbox.checked) {
+          doFlowProfile = true; // Generates specific flow profile
+          useDefaultFlowMappingInOnu = false;
+          includeOnuMatchLine = false;
+      } else if (generateWithMatchingOnuTypeCheckbox.checked) {
+          doFlowProfile = true; // Generates specific flow profile
+          useDefaultFlowMappingInOnu = false;
+          includeOnuMatchLine = true;
+      }
+
+      // Generate Flow-Mapping Profile section if needed
+      if (doFlowProfile) {
+        vlans.forEach((vlan, i) => {
+          const pon = `pon${i + 1}`;
+          outputLines.push(`gpon profile onu-flow-mapping flow_mapping_sfu_${pon}`);
+          outputLines.push(` gpon-profile entry 1 uni type eth-uni all`);
+          outputLines.push(` gpon-profile entry 1 vlan ${vlan}`);
+          outputLines.push(` gpon-profile entry 1 virtual-port 1\n!`);
+        });
+      }
+
+      // Generate VLAN Profile section
+      if (doVlanProfile) {
+        vlans.forEach((vlan, i) => {
+          const pon = `pon${i + 1}`;
+          outputLines.push(`gpon profile onu-vlan ${pon}`);
+          outputLines.push(` gpon-profile vlan mode tag`);
+          outputLines.push(` gpon-profile vlan pvid ${vlan}\n!`);
+        });
+      }
+
+      // Generate Gpon onutype-template section
+      if (doOnuTemplate) {
+        vlans.forEach((vlan, i) => {
+          const pon = `pon${i + 1}`;
+          outputLines.push(`gpon onutype-template onutype-sfu-${pon}`);
+          if (includeOnuMatchLine) {
+            outputLines.push(` gpon-onutype match ctc-onu-type SFU`);
+          }
+          outputLines.push(` gpon-onutype config tcont-virtual-port-bind-profile tvbind-default`);
+
+          if (useDefaultFlowMappingInOnu) {
+            outputLines.push(` gpon-onutype config flow-mapping-profile flow-mapping-default`);
+          } else {
+            outputLines.push(` gpon-onutype config flow-mapping-profile flow_mapping_sfu_${pon}`);
+          }
+
+          for (let j = 1; j <= 4; j++) {
+            outputLines.push(` gpon-onutype config uni ${j} vlan-profile ${pon}`);
+          }
+          outputLines.push(`!`);
+        });
+      }
+
+      // Generate Gpon bind-onutype section
+      if (doInterfaceBind) {
+        vlans.forEach((vlan, i) => {
+          const pon = `pon${i + 1}`;
+          outputLines.push(`interface GPON0/${i + 1}`);
+          outputLines.push(` gpon bind-onutype onutype-sfu-${pon} precedence 126`);
+          outputLines.push(` switchport mode trunk`);
+          outputLines.push(` switchport pvid ${vlan}\n!`);
+        });
+      }
+
+      document.getElementById('outputArea').textContent = outputLines.join('\n');
+
+      // Success feedback for Generate Button
+      generateButton.textContent = "Generated!";
+      generateButton.classList.add('copied-success');
+      setTimeout(() => {
+        generateButton.textContent = "Generate Configuration";
+        generateButton.classList.remove('copied-success');
+      }, 2000);
+    }
+
+    // Helper function to expand VLAN input (unchanged)
     function expandVlanInput(input) {
       const parts = input.split(',');
       const vlans = [];
@@ -323,99 +425,10 @@
           vlans.push(vlan.toString());
         }
       }
-
       return vlans;
     }
 
-    // Generate Config
-    function generateConfig() {
-      const portCount = parseInt(document.getElementById('portCount').value);
-      const vlanInputVal = document.getElementById('vlanInput').value.trim();
-      const vlans = expandVlanInput(vlanInputVal);
-
-      if (!vlans) {
-        alert("Invalid VLAN input. VLANs must be between 1 and 4094.");
-        return;
-      }
-
-      if (vlans.length !== portCount) {
-        alert(`You selected ${portCount} ports but entered ${vlans.length} VLAN(s).`);
-        return;
-      }
-
-      const outputLines = [];
-
-      const useDefaultFlowMappingOption = selectAllDefaultFlowCheckbox.checked;
-
-      const doFlow = useDefaultFlowMappingOption ? false : document.getElementById('flowMapping').checked;
-      const doVlan = useDefaultFlowMappingOption ? true : document.getElementById('vlanProfile').checked;
-      const doOnu = useDefaultFlowMappingOption ? true : document.getElementById('onuType').checked;
-      const doInterface = useDefaultFlowMappingOption ? true : document.getElementById('interfaceBind').checked;
-
-      if (!doFlow && !doVlan && !doOnu && !doInterface && !useDefaultFlowMappingOption) {
-        alert("Please select at least one config option, or 'Select All with Default Flow-Mapping Profile'.");
-        return;
-      }
-
-      if (doFlow) {
-        vlans.forEach((vlan, i) => {
-          const pon = `pon${i + 1}`;
-          outputLines.push(`gpon profile onu-flow-mapping flow_mapping_sfu_${pon}`);
-          outputLines.push(` gpon-profile entry 1 uni type eth-uni all`);
-          outputLines.push(` gpon-profile entry 1 vlan ${vlan}`);
-          outputLines.push(` gpon-profile entry 1 virtual-port 1\n!`);
-        });
-      }
-
-      if (doVlan) {
-        vlans.forEach((vlan, i) => {
-          const pon = `pon${i + 1}`;
-          outputLines.push(`gpon profile onu-vlan ${pon}`);
-          outputLines.push(` gpon-profile vlan mode tag`);
-          outputLines.push(` gpon-profile vlan pvid ${vlan}\n!`);
-        });
-      }
-
-      if (doOnu) {
-        vlans.forEach((vlan, i) => {
-          const pon = `pon${i + 1}`;
-          outputLines.push(`gpon onutype-template onutype-sfu-${pon}`);
-          outputLines.push(` gpon-onutype match ctc-onu-type SFU`);
-          outputLines.push(` gpon-onutype config tcont-virtual-port-bind-profile tvbind-default`);
-          if (useDefaultFlowMappingOption) {
-            outputLines.push(` gpon-onutype config flow-mapping-profile flow-mapping-default`);
-          } else {
-            outputLines.push(` gpon-onutype config flow-mapping-profile flow_mapping_sfu_${pon}`);
-          }
-          for (let j = 1; j <= 4; j++) {
-            outputLines.push(` gpon-onutype config uni ${j} vlan-profile ${pon}`);
-          }
-          outputLines.push(`!`);
-        });
-      }
-
-      if (doInterface) {
-        vlans.forEach((vlan, i) => {
-          const pon = `pon${i + 1}`;
-          outputLines.push(`interface GPON0/${i + 1}`);
-          outputLines.push(` gpon bind-onutype onutype-sfu-${pon} precedence 126`);
-          outputLines.push(` switchport mode trunk`);
-          outputLines.push(` switchport pvid ${vlan}\n!`);
-        });
-      }
-
-      document.getElementById('outputArea').textContent = outputLines.join('\n');
-
-      // Success feedback for Generate Button
-      generateButton.textContent = "Generated!";
-      generateButton.classList.add('copied-success');
-      setTimeout(() => {
-        generateButton.textContent = "Generate Configuration";
-        generateButton.classList.remove('copied-success');
-      }, 2000);
-    }
-
-    // Copy to Clipboard
+    // Copy to Clipboard (now with button feedback)
     function copyToClipboard() {
       const output = document.getElementById('outputArea').textContent;
       if (!output.trim()) {
@@ -444,7 +457,7 @@
       }
     }
 
-    // Download as .txt
+    // Download as .txt (now with button feedback)
     function downloadConfig() {
       const text = document.getElementById('outputArea').textContent.trim();
       const vlanInputVal = document.getElementById('vlanInput').value.trim();
@@ -465,7 +478,6 @@
       link.href = URL.createObjectURL(blob);
       link.download = filename;
 
-      // Trigger download
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
